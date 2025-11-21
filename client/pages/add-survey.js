@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useRouter } from 'next/router';
 import toast from 'react-hot-toast';
+import { API_URL } from '../config'; // <-- EKLENDİ
 
 export default function AddSurvey() {
   const [form, setForm] = useState({ title: '', description: '', externalLink: '', category: '' });
@@ -20,7 +21,8 @@ export default function AddSurvey() {
     const loadingToast = toast.loading('Anket yayınlanıyor...');
 
     try {
-      await axios.post('http://192.168.1.47:5000/api/surveys', form, {
+      // ADRES GÜNCELLENDİ
+      await axios.post(`${API_URL}/surveys`, form, {
           headers: { 'x-auth-token': token }
       });
       
@@ -39,29 +41,14 @@ export default function AddSurvey() {
         <h2 className="text-2xl font-bold mb-6 text-gray-900 text-center">📢 Anketini Paylaş</h2>
         <form onSubmit={handleSubmit} className="space-y-4">
           <input required type="text" placeholder="Başlık" className="w-full p-3 border rounded text-gray-900 bg-white" onChange={e => setForm({...form, title: e.target.value})} />
-          
-          {/* ÖZGÜR KATEGORİ SEÇİMİ */}
           <div>
-            <input 
-                required 
-                list="categories" 
-                placeholder="Kategori (Seç veya Yaz)" 
-                className="w-full p-3 border rounded text-gray-900 bg-white"
-                onChange={e => setForm({...form, category: e.target.value})}
-            />
+            <input required list="categories" placeholder="Kategori (Seç veya Yaz)" className="w-full p-3 border rounded text-gray-900 bg-white" onChange={e => setForm({...form, category: e.target.value})} />
             <datalist id="categories">
-                <option value="Tez / Akademik" />
-                <option value="Oyun" />
-                <option value="Psikoloji" />
-                <option value="Pazar Araştırması" />
-                <option value="Sosyal Sorumluluk" />
-                <option value="Eğitim" />
+                <option value="Tez / Akademik" /><option value="Oyun" /><option value="Psikoloji" />
             </datalist>
           </div>
-
-          <input required type="url" placeholder="Link (Google Forms vb.)" className="w-full p-3 border rounded text-gray-900 bg-white" onChange={e => setForm({...form, externalLink: e.target.value})} />
+          <input required type="url" placeholder="Link (Google Forms)" className="w-full p-3 border rounded text-gray-900 bg-white" onChange={e => setForm({...form, externalLink: e.target.value})} />
           <textarea placeholder="Açıklama" className="w-full p-3 border rounded text-gray-900 bg-white" onChange={e => setForm({...form, description: e.target.value})}></textarea>
-          
           <button type="submit" className="w-full bg-indigo-600 text-white py-3 rounded font-bold hover:bg-indigo-700">Yayınla</button>
         </form>
       </div>

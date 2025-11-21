@@ -1,121 +1,43 @@
-import { useState, useEffect } from 'react';
-import toast from 'react-hot-toast';
-import axios from 'axios';
+import Link from 'next/link';
 
-export default function SurveyCard({ survey, onFill }) {
-  const [status, setStatus] = useState('idle'); 
-  const [startTime, setStartTime] = useState(null);
-
-  // Sekme Takibi
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && status === 'waiting') {
-        checkTime();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [status, startTime]);
-
-  const handleStart = () => {
-    setStartTime(Date.now());
-    setStatus('waiting');
-    window.open(survey.externalLink, '_blank');
-  };
-
-  const checkTime = () => {
-    if (!startTime) return;
-    const timeSpent = Date.now() - startTime;
-    const MIN_TIME = 10000; // 10 Saniye
-
-    if (timeSpent < MIN_TIME) {
-      // --- SENİN İSTEDİĞİN KIRMIZI UYARI ---
-      toast.error('Puan verilemedi. Lütfen anketi doldurduğunuzdan emin olunuz', {
-        duration: 5000,
-        icon: '🛑'
-      });
-      setStatus('idle'); 
-      setStartTime(null);
-    } else {
-      toast.success('Süre tamamlandı. Puanını talep edebilirsin.', { duration: 3000 });
-      setStatus('ready');
-    }
-  };
-
-  const handleClaimPoint = async () => {
-    try {
-        // Backend'e isteği burada atıyoruz ki hata mesajını yakalayalım
-        const token = localStorage.getItem('token');
-        
-        // Eğer token yoksa (Misafir) direkt tıkla
-        if(!token) {
-           onFill(survey._id); // Ana sayfadaki fonksiyona git
-           setStatus('completed');
-           return;
-        }
-
-        // Eğer üye ise kontrol et
-        await axios.post(`http://192.168.1.47:5000/api/click/${survey._id}`, {}, {
-            headers: { 'x-auth-token': token }
-        });
-
-        // --- SENİN İSTEDİĞİN YEŞİL UYARI ---
-        toast.success('Anketi doldurduğunuz için teşekkür ederiz. Puanınızı alabilirsiniz.', {
-            duration: 4000,
-            icon: '🎉'
-        });
-        setStatus('completed');
-
-    } catch (err) {
-        // 12 Saat hatası burada yakalanır
-        toast.error(err.response?.data?.msg || 'Bir hata oluştu.');
-        // Butonu tekrar tıklanabilir yapmıyoruz, hata olsa bile completed kalsın mı? 
-        // Hayır, belki tekrar denemek ister. 'ready' modunda bırakalım.
-    }
-  };
-
+export default function SurveyCard({ survey }) {
+  // onFill prop'una artık gerek yok, her şey detay sayfasında.
+  
   return (
-    <div className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-all border border-gray-100 relative overflow-hidden">
-      <div className="flex items-center gap-3 mb-2">
-        <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded-full font-bold">{survey.category}</span>
-        <span className="text-gray-500 text-xs">{new Date(survey.createdAt).toLocaleDateString()}</span>
+    <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-xl transition-all border border-gray-100 flex flex-col h-full group relative">
+      
+      {/* Kategori ve Puan */}
+      <div className="flex items-center justify-between mb-4">
+         <span className="bg-blue-50 text-blue-700 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wide">
+            {survey.category}
+         </span>
+         <div className="flex items-center text-yellow-500 font-bold text-sm bg-yellow-50 px-2 py-1 rounded border border-yellow-100">
+             ⭐ {survey.rating || 0}
+         </div>
       </div>
 
-      <h3 className="text-xl font-bold text-gray-900 mb-2">{survey.title}</h3>
-      <p className="text-gray-700 text-sm mb-4 line-clamp-2">{survey.description}</p>
+      {/* Başlık */}
+      <h3 className="text-xl font-bold text-gray-900 mb-3 leading-snug group-hover:text-indigo-600 transition-colors">
+          {survey.title}
+      </h3>
+      
+      {/* Özet Açıklama */}
+      <p className="text-gray-600 text-sm mb-6 line-clamp-3 flex-grow">
+          {survey.description}
+      </p>
 
-      <div className="flex flex-col gap-3 mt-4 border-t pt-4">
-        <div className="text-xs text-gray-500 flex justify-between items-center">
-          <span>Sahibi: <b className="text-gray-800">{survey.username || 'Anonim'}</b></span>
-          <span className="bg-gray-100 px-2 py-1 rounded text-gray-600 font-bold">{survey.clicks || 0} Tık</span>
-        </div>
+      {/* Alt Bilgi ve Buton */}
+      <div className="mt-auto pt-4 border-t border-gray-100 flex items-center justify-between">
+          <div className="text-xs text-gray-500">
+              <p>Sahibi: <span className="font-bold text-gray-700">{survey.username || 'Anonim'}</span></p>
+              <p className="mt-0.5">{new Date(survey.createdAt).toLocaleDateString()}</p>
+          </div>
 
-        {status === 'idle' && (
-            <button onClick={handleStart} className="w-full py-2 rounded-lg font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-md">
-              Ankete Git & Başla
-            </button>
-        )}
-
-        {status === 'waiting' && (
-            <div className="text-center">
-                <p className="text-xs text-gray-500 mb-2 animate-pulse">Anket sekmesi açık...</p>
-                <button disabled className="w-full py-2 rounded-lg font-bold text-gray-500 bg-gray-200 cursor-wait border border-gray-300">
-                  ⏳ Anketi Doldur ve Dön...
-                </button>
-            </div>
-        )}
-
-        {status === 'ready' && (
-            <button onClick={handleClaimPoint} className="w-full py-2 rounded-lg font-bold text-white bg-green-600 hover:bg-green-700 animate-bounce shadow-lg">
-              ✅ Doldurdum, Puanı Ver!
-            </button>
-        )}
-
-        {status === 'completed' && (
-            <button disabled className="w-full py-2 rounded-lg font-bold text-green-700 bg-green-100 border border-green-200">
-              ✓ İşlem Tamam
-            </button>
-        )}
+          <Link href={`/survey/${survey._id}`}>
+              <button className="bg-indigo-600 text-white px-5 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition shadow-md hover:shadow-lg transform hover:-translate-y-0.5">
+                  İncele & Kazan →
+              </button>
+          </Link>
       </div>
     </div>
   );

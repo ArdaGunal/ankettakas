@@ -3,20 +3,23 @@ import type { AppProps } from "next/app";
 import { Toaster } from 'react-hot-toast';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { Inter } from 'next/font/google'; // Google Font Eklendi
+
+// Inter fontunu ayarlıyoruz
+const inter = Inter({ subsets: ['latin'] });
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
-
-  // Eğer zaten ana sayfadaysak butonu gösterme (Gereksiz kalabalık olmasın)
   const isHomePage = router.pathname === '/';
 
   return (
-    <>
+    // Font sınıfını (className) ana kapsayıcıya ekliyoruz
+    <main className={inter.className}>
       <Toaster position="top-right" toastOptions={{ duration: 3000 }} />
       
       <Component {...pageProps} />
 
-      {/* --- HER YERDE GÖRÜNEN SABİT BUTON --- */}
+      {/* Ana Menü Butonu */}
       {!isHomePage && (
           <Link href="/">
             <button 
@@ -27,6 +30,6 @@ export default function App({ Component, pageProps }: AppProps) {
             </button>
           </Link>
       )}
-    </>
+    </main>
   );
 }
