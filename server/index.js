@@ -4,10 +4,21 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 app.use(express.json());
 app.use(cors());
+
+// GÜVENLİK: RATE LIMIT (Saldırı Koruması)
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, 
+  max: 100, 
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { msg: "Çok fazla istek attınız, lütfen 15 dakika bekleyin." }
+});
+app.use(limiter);
 
 const DB_FILE = path.join(__dirname, 'database.json');
 let data = { users: [], surveys: [] };
@@ -23,17 +34,9 @@ const getPointsForLevel = (level) => {
 };
 
 const calculateLevel = (points) => {
-    if (points < 1) return 1;
-    if (points < 3) return 2;
-    if (points < 6) return 3;
-    if (points < 10) return 4;
-    if (points < 15) return 5;
-    let level = 5;
-    while (true) {
-        if (points < getPointsForLevel(level + 1)) return level;
-        level++;
-        if (level >= 50) return 50;
-    }
+    let level = 1;
+    while (points >= getPointsForLevel(level + 1)) level++;
+    return level > 50 ? 50 : level;
 };
 
 const loadData = () => {
@@ -41,8 +44,16 @@ const loadData = () => {
         try { data = JSON.parse(fs.readFileSync(DB_FILE, 'utf8')); } catch (e) {}
     } else { saveData(); }
 };
-const saveData = () => fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
-loadData();
+
+const saveData = () => {
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+    } catch (error) {
+        console.error("VERİTABANI KAYIT HATASI: JSON yazılırken sorun oluştu.", error.message);
+    }
+};
+
+loadData(); 
 
 const auth = (req, res, next) => {
     const token = req.header('x-auth-token');
@@ -56,28 +67,33 @@ const auth = (req, res, next) => {
 
 // --- ROTALAR ---
 
-// 1. KAYIT OLMA (TEMİZLENDİ)
 app.post('/api/register', async (req, res) => {
-    // SADECE gerekli alanlar alınıyor
-    const { username, email, password } = req.body; 
+    const { username, email, password } = req.body;
     
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) { return res.status(400).json({ msg: 'Lütfen geçerli bir e-posta adresi girin.' }); }
+
     if (data.users.find(u => u.email === email)) return res.status(400).json({ msg: 'Mail kayıtlı.' });
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = { 
         id: Date.now().toString(), username, email, password: hashedPassword, 
         points: 0, lastBoostDate: null, boostsUsedToday: 0,
-        bonusBoosts: 0, streakCount: 0, streakSurveyIds: [], nextStreakAvailableAt: null // Görev bilgileri
+        bonusBoosts: 0, streakCount: 0, streakSurveyIds: [], nextStreakAvailableAt: null
     };
     data.users.push(newUser);
     saveData();
     res.json({ msg: 'Kayıt başarılı!' });
 });
 
+// GİRİŞ YAPMA (BYPASS KALDIRILDI)
 app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
     const user = data.users.find(u => u.email === email);
     if (!user) return res.status(400).json({ msg: 'Kullanıcı yok.' });
-    const isMatch = await bcrypt.compare(password, user.password);
+    
+    // ŞİFRE KONTROLÜ GERİ GELDİ
+    const isMatch = await bcrypt.compare(password, user.password); 
+    
     if (!isMatch) return res.status(400).json({ msg: 'Şifre yanlış.' });
     const token = jwt.sign({ id: user.id, username: user.username }, 'gizliSifre123');
     res.json({ token, user: { username: user.username, points: user.points } });
@@ -85,14 +101,17 @@ app.post('/api/login', async (req, res) => {
 
 app.get('/api/profile', auth, (req, res) => {
     const user = data.users.find(u => u.id === req.user.id);
+    
+    if (!user) { 
+        return res.status(401).json({ msg: 'Oturum bilgileri bulunamadı, tekrar giriş yapın.' });
+    }
+
     const userSurveys = data.surveys.filter(s => s.username === user.username);
     const currentLevel = calculateLevel(user.points);
 
     let totalRating = 0;
     let ratedSurveyCount = 0;
-    userSurveys.forEach(s => {
-        if (s.rating && s.rating > 0) { totalRating += s.rating; ratedSurveyCount++; }
-    });
+    userSurveys.forEach(s => { if (s.rating) { totalRating += s.rating; ratedSurveyCount++; } });
     const reputation = ratedSurveyCount > 0 ? (totalRating / ratedSurveyCount).toFixed(1) : "Yok";
 
     res.json({ 
@@ -106,8 +125,19 @@ app.get('/api/profile', auth, (req, res) => {
     });
 });
 
-const getDailyBoostLimit = (level) => (level < 5 ? 0 : level < 8 ? 1 : level < 15 ? 2 : 3);
-const getSurveyLimit = (level) => (level < 5 ? 1 : level < 10 ? 2 : level < 20 ? 3 : level < 30 ? 5 : 10);
+const getDailyBoostLimit = (level) => (
+    level < 2 ? 0 : 
+    level < 3 ? 1 : 
+    level < 5 ? 3 : 
+    level < 7 ? 5 : 
+    level < 10 ? 8 : 
+    15 // Level 10 ve sonrası için maksimum hak
+);
+const getSurveyLimit = (level) => 
+    (level < 5 ? 2 :
+     level < 10 ? 5 : 
+     level < 20 ? 7 :
+    level < 30 ? 5 : 10);
 
 app.get('/api/surveys', (req, res) => {
     const sortedSurveys = [...data.surveys].sort((a, b) => {
@@ -123,11 +153,8 @@ app.get('/api/surveys/:id', (req, res) => {
     if(survey) res.json(survey); else res.status(404).json({ msg: 'Yok' });
 });
 
-// 2. ANKET EKLEME (YENİ SÜRE ALANLARI EKLENDİ)
 app.post('/api/surveys', auth, (req, res) => {
-    // SADECE BU ROTADA ANKET ALANLARI ALINIR
     const { title, description, category, externalLink, durationValue, durationUnit } = req.body;
-
     const user = data.users.find(u => u.id === req.user.id);
     const level = calculateLevel(user.points);
     const limit = getSurveyLimit(level);
@@ -136,12 +163,10 @@ app.post('/api/surveys', auth, (req, res) => {
     if (userSurveyCount >= limit) return res.status(403).json({ msg: `Limit doldu! Seviye ${level} limiti: ${limit}` });
 
     const newSurvey = {
-        _id: Date.now().toString(), 
-        title, description, category, externalLink,
-        durationValue: parseInt(durationValue) || 5, // Süre değeri eklendi
-        durationUnit: durationUnit || 'min',        // Süre birimi eklendi
+        _id: Date.now().toString(), title, description, category, externalLink,
+        durationValue: parseInt(durationValue) || 5, durationUnit: durationUnit || 'min',       
         clicks: 0, createdAt: new Date(), lastBoostedAt: new Date(),
-        username: req.user.username, clickedBy: [], reviews: [], rating: 0
+        username: req.user.username, clickedBy: [], comments: [], rating: 0, ratings: []
     };
     data.surveys.unshift(newSurvey);
     saveData();
@@ -197,24 +222,28 @@ app.post('/api/click/:id', async (req, res) => {
     if(token) { try { userId = jwt.verify(token, 'gizliSifre123').id; } catch(e) {} }
 
     if (userId) {
-        const user = data.users.find(u => u.id === userId);
-        const historyIndex = survey.clickedBy.findIndex(log => log.userId === userId);
-        const TWELVE_HOURS = 12 * 60 * 60 * 1000; 
+        const userIndex = data.users.findIndex(u => u.id === userId);
+        
+        if (userIndex !== -1) {
+            const user = data.users[userIndex]; 
+            const historyIndex = survey.clickedBy.findIndex(log => log.userId === userId);
+            const TWELVE_HOURS = 12 * 60 * 60 * 1000; 
 
-        if (historyIndex > -1) {
-            const timeDiff = Date.now() - survey.clickedBy[historyIndex].timestamp;
-            if (timeDiff < TWELVE_HOURS) {
-                const rem = Math.ceil((TWELVE_HOURS - timeDiff) / (3600000));
-                return res.status(400).json({ msg: `${rem} saat bekle.` });
-            } else { survey.clickedBy[historyIndex].timestamp = Date.now(); }
-        } else { 
-            survey.clickedBy.push({ userId, timestamp: Date.now() }); 
-        }
+            if (historyIndex > -1) {
+                const timeDiff = Date.now() - survey.clickedBy[historyIndex].timestamp;
+                if (timeDiff < TWELVE_HOURS) {
+                    const rem = Math.ceil((TWELVE_HOURS - timeDiff) / (3600000));
+                    return res.status(400).json({ msg: `${rem} saat bekle.` });
+                } else { survey.clickedBy[historyIndex].timestamp = Date.now(); }
+            } else { 
+                survey.clickedBy.push({ userId, timestamp: Date.now() }); 
+            }
 
-        if(user) { 
-            user.points += 1; 
-            const NOW = Date.now();
+            // PUAN GÜNCELLEMESİ
+            data.users[userIndex].points += 1; 
             
+            // Görev mantığı
+            const NOW = Date.now();
             if (!user.nextStreakAvailableAt || NOW > user.nextStreakAvailableAt) {
                 if (!user.streakSurveyIds) user.streakSurveyIds = [];
                 if (!user.streakSurveyIds.includes(survey._id)) {
@@ -238,42 +267,42 @@ app.post('/api/click/:id', async (req, res) => {
     res.json({ msg: 'OK', clicks: survey.clicks, reward: rewardMessage });
 });
 
-app.post('/api/surveys/:id/review', auth, (req, res) => {
-    const { text, stars } = req.body;
+// YORUM GÖNDERME (SINIRSIZ)
+app.post('/api/surveys/:id/comment', auth, (req, res) => {
+    const { text } = req.body;
     const survey = data.surveys.find(s => s._id === req.params.id);
     if (!survey) return res.status(404).json({ msg: 'Yok' });
-    const newReview = { username: req.user.username, text, stars: Number(stars), date: new Date(), replies: [] };
-    if (!survey.reviews) survey.reviews = [];
-    survey.reviews.unshift(newReview);
-    const totalStars = survey.reviews.reduce((acc, rev) => acc + rev.stars, 0);
-    survey.rating = parseFloat((totalStars / survey.reviews.length).toFixed(1));
+    if (!text || text.trim().length < 3) return res.status(400).json({ msg: 'Yorum metni çok kısa.' });
+
+    const newComment = { username: req.user.username, text, date: new Date(), replies: [] };
+    if (!survey.comments) survey.comments = [];
+    survey.comments.unshift(newComment);
+    
     saveData();
-    res.json({ msg: 'Yorum eklendi!', survey });
+    res.json({ msg: 'Yorumunuz eklendi!', survey });
 });
 
+// YORUM SİLME (Sadece anket sahibi)
 app.delete('/api/surveys/:id/reviews/:index', auth, (req, res) => {
     const survey = data.surveys.find(s => s._id === req.params.id);
     if (!survey) return res.status(404).json({ msg: 'Anket yok' });
     if (survey.username !== req.user.username) return res.status(403).json({ msg: 'Yetkisiz' });
     const index = parseInt(req.params.index);
-    if (index >= 0 && index < survey.reviews.length) {
-        survey.reviews.splice(index, 1);
-        if (survey.reviews.length > 0) {
-            const totalStars = survey.reviews.reduce((acc, rev) => acc + rev.stars, 0);
-            survey.rating = parseFloat((totalStars / survey.reviews.length).toFixed(1));
-        } else { survey.rating = 0; }
+    if (index >= 0 && index < survey.comments.length) { 
+        survey.comments.splice(index, 1);
         saveData();
         res.json({ msg: 'Yorum silindi', survey });
     } else { res.status(400).json({ msg: 'Yorum bulunamadı' }); }
 });
 
+// YORUMA YANIT VERME
 app.post('/api/surveys/:id/reviews/:index/reply', auth, (req, res) => {
     const { text } = req.body;
     const survey = data.surveys.find(s => s._id === req.params.id);
     if (!survey) return res.status(404).json({ msg: 'Anket yok' });
     const index = parseInt(req.params.index);
-    if (index >= 0 && index < survey.reviews.length) {
-        const review = survey.reviews[index];
+    if (index >= 0 && index < survey.comments.length) { 
+        const review = survey.comments[index];
         if (!review.replies) review.replies = []; 
         review.replies.push({ username: req.user.username, text, date: new Date() });
         saveData();
@@ -281,5 +310,30 @@ app.post('/api/surveys/:id/reviews/:index/reply', auth, (req, res) => {
     } else { res.status(400).json({ msg: 'Yorum bulunamadı' }); }
 });
 
+// OYLAMA (TEK HAK KONTROLÜ)
+app.post('/api/surveys/:id/review', auth, (req, res) => {
+    const { stars } = req.body;
+    const survey = data.surveys.find(s => s._id === req.params.id);
+    if (!survey) return res.status(404).json({ msg: 'Yok' });
+
+    // KONTROL: Zaten oy vermiş mi? 
+    if (!survey.ratings) survey.ratings = [];
+    const existingRate = survey.ratings.find(r => r.username === req.user.username);
+    if (existingRate) {
+        return res.status(400).json({ msg: 'Bu anketi zaten oyladınız. Tekrar oy kullanamazsınız.' });
+    }
+
+    // Oyu kaydet
+    survey.ratings.push({ username: req.user.username, stars: Number(stars), date: new Date() });
+
+    // Yeni ortalamayı hesapla
+    const totalStars = survey.ratings.reduce((acc, r) => acc + r.stars, 0);
+    survey.rating = parseFloat((totalStars / survey.ratings.length).toFixed(1));
+    
+    saveData();
+    res.json({ msg: 'Oylama başarılı!', survey });
+});
+
+
 const PORT = 5000;
-app.listen(PORT, () => console.log(`Backend ${PORT} portunda SÜRE ÖZELLİĞİ İLE HAZIR...`));
+app.listen(PORT, () => console.log(`Backend ${PORT} portunda SON HATA ÇÖZÜMLENDİ...`));
