@@ -33,88 +33,49 @@ export default function Profile() {
       router.push('/login'); 
   };
 
-  // --- MERKEZİ VE DİKKAT ÇEKİCİ SİLME ONAYI ---
-  const handleDeleteSurvey = (surveyId) => {
+  // --- ANKET EKLEME KONTROLÜ (PROFİL İÇİN) ---
+  const handleAddSurveyCheck = () => {
+      // Zaten elimizde kullanıcının verileri (data) var, tekrar sormaya gerek yok
+      if (data.surveys.length >= data.user.surveyLimit) {
+          toast.error(`Anket hakkınız dolmuş! (${data.surveys.length}/${data.user.surveyLimit})`, {
+              icon: '🚫',
+              style: { border: '1px solid #ef4444', color: '#713200' }
+          });
+      } else {
+          router.push('/add-survey');
+      }
+  };
+
+  const handleDeleteSurvey = async (surveyId) => {
       toast((t) => (
         <div className="flex flex-col items-center text-center gap-3 w-full">
-          
-          {/* Büyük Çöp Kutusu İkonu */}
-          <div className="bg-red-100 p-3 rounded-full">
-            <span className="text-3xl">🗑️</span>
-          </div>
-
+          <div className="bg-red-100 p-3 rounded-full"><span className="text-3xl">🗑️</span></div>
           <div>
-            <p className="font-black text-gray-900 text-lg">
-              Anketi Silmek Üzeresin!
-            </p>
-            <p className="text-sm text-gray-500 mt-1">
-              Bu işlem geri alınamaz ve tüm yorumlar/puanlar silinir. Emin misin?
-            </p>
+            <p className="font-black text-gray-900 text-lg">Anketi Silmek Üzeresin!</p>
+            <p className="text-sm text-gray-500 mt-1">Bu işlem geri alınamaz. Emin misin?</p>
           </div>
-
           <div className="flex gap-3 mt-2 w-full">
-            {/* VAZGEÇ BUTONU */}
-            <button 
-              onClick={() => toast.dismiss(t.id)}
-              className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition border border-gray-300"
-            >
-              Vazgeç
-            </button>
-            
-            {/* SİL BUTONU */}
-            <button 
-              onClick={async () => {
+            <button onClick={() => toast.dismiss(t.id)} className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 border border-gray-300">Vazgeç</button>
+            <button onClick={async () => {
                   toast.dismiss(t.id);
                   const token = localStorage.getItem('token');
                   try {
-                      await axios.delete(`${API_URL}/surveys/${surveyId}`, {
-                          headers: { 'x-auth-token': token }
-                      });
-                      toast.success("Anket kalıcı olarak silindi.");
-                      fetchProfile(); 
-                  } catch (err) {
-                      toast.error("Silinemedi: " + (err.response?.data?.msg || "Hata"));
-                  }
-              }}
-              className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-700 transition shadow-lg shadow-red-200"
-            >
-              Evet, Sil
-            </button>
+                      await axios.delete(`${API_URL}/surveys/${surveyId}`, { headers: { 'x-auth-token': token } });
+                      toast.success("Anket silindi."); fetchProfile(); 
+                  } catch (err) { toast.error("Hata oluştu."); }
+              }} className="flex-1 bg-red-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-700 shadow-lg shadow-red-200">Evet, Sil</button>
           </div>
         </div>
-      ), {
-        duration: Infinity, // Kullanıcı tıklayana kadar kapanmaz
-        position: 'top-center', // Başlangıç noktası
-        
-        // --- BURASI KUTUYU ORTAYA ALIR ---
-        style: {
-            marginTop: '20vh', // Ekranın %20'si kadar aşağı it (Ortalar)
-            minWidth: '320px', // Genişlik
-            padding: '24px',   // İç boşluk
-            background: '#FFFFFF',
-            color: '#1F2937',
-            border: '1px solid #E5E7EB',
-            // Derin Gölge Efekti (Daha dikkat çekici)
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04), 0 0 0 100vw rgba(0,0,0,0.3)' 
-            // Sondaki `0 0 0 100vw rgba(0,0,0,0.3)` kodu arka planı hafif karartır!
-        },
-      });
+      ), { duration: Infinity, position: 'top-center', style: { marginTop: '20vh', minWidth: '320px', padding: '24px', background: '#FFFFFF', color: '#1F2937', border: '1px solid #E5E7EB', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1), 0 0 0 100vw rgba(0,0,0,0.3)' } });
   };
 
   const handleBoost = async (surveyId) => {
       const token = localStorage.getItem('token');
       setLoadingId(surveyId);
       try {
-          const res = await axios.post(`${API_URL}/boost/${surveyId}`, {}, {
-            headers: { 'x-auth-token': token }
-          });
-          toast.success("Anket başarıyla üste taşındı! 🔥");
-          fetchProfile();
-      } catch (err) {
-          toast.error(err.response?.data?.msg || 'Hata');
-      } finally {
-          setLoadingId(null);
-      }
+          const res = await axios.post(`${API_URL}/boost/${surveyId}`, {}, { headers: { 'x-auth-token': token } });
+          toast.success("Anket üste taşındı! 🔥"); fetchProfile();
+      } catch (err) { toast.error(err.response?.data?.msg || 'Hata'); } finally { setLoadingId(null); }
   };
 
   if (!data) return <div className="min-h-screen flex items-center justify-center">Yükleniyor...</div>;
@@ -124,7 +85,6 @@ export default function Profile() {
   const currentProgress = current - floor;
   const percent = Math.min(100, Math.max(0, (currentProgress / totalNeeded) * 100));
 
-  // GÖREV HESAPLAMALARI
   const streak = data.user.streakCount || 0;
   const streakPercent = (streak / 5) * 100;
   const isCooldown = data.user.nextStreakAvailableAt && new Date(data.user.nextStreakAvailableAt) > new Date();
@@ -171,32 +131,17 @@ export default function Profile() {
             </div>
         </div>
 
-        {/* GÜNLÜK GÖREV KARTI */}
+        {/* GÜNLÜK GÖREV */}
         <div className="bg-gradient-to-r from-purple-500 to-indigo-600 rounded-2xl shadow-lg p-6 mb-8 text-white relative overflow-hidden">
             <div className="absolute top-0 right-0 -mr-8 -mt-8 w-24 h-24 rounded-full bg-white opacity-10"></div>
-            
             <div className="flex justify-between items-center mb-2">
                 <h3 className="font-bold text-lg flex items-center gap-2">🎯 Ekstra Hak Görevi</h3>
-                {isCooldown ? (
-                    <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold">⏳ Bekle: {cooldownText}</span>
-                ) : (
-                    <span className="bg-green-400 text-green-900 px-3 py-1 rounded-full text-xs font-bold">AKTİF</span>
-                )}
+                {isCooldown ? <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold">⏳ Bekle: {cooldownText}</span> : <span className="bg-green-400 text-green-900 px-3 py-1 rounded-full text-xs font-bold">AKTİF</span>}
             </div>
-            
-            <p className="text-sm text-indigo-100 mb-4">
-                {isCooldown ? "Ödülü aldın! Yeni görev için sürenin dolmasını bekle." : "5 Farklı anketi doldur, 1 adet ücretsiz 'Üste Çıkarma' hakkı kazan!"}
-            </p>
-
+            <p className="text-sm text-indigo-100 mb-4">{isCooldown ? "Ödülü aldın! Yeni görev için sürenin dolmasını bekle." : "5 Farklı anketi doldur, 1 adet ücretsiz 'Üste Çıkarma' hakkı kazan!"}</p>
             <div className="relative pt-1">
-                <div className="flex mb-2 items-center justify-between">
-                    <span className="text-xs font-semibold inline-block uppercase">
-                        {streak} / 5 Tamamlandı
-                    </span>
-                </div>
-                <div className="overflow-hidden h-3 mb-1 text-xs flex rounded bg-black/20">
-                    <div style={{ width: `${streakPercent}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-green-400 transition-all duration-500"></div>
-                </div>
+                <div className="flex mb-2 items-center justify-between"><span className="text-xs font-semibold inline-block uppercase">{streak} / 5 Tamamlandı</span></div>
+                <div className="overflow-hidden h-3 mb-1 text-xs flex rounded bg-black/20"><div style={{ width: `${streakPercent}%` }} className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-green-400 transition-all duration-500"></div></div>
             </div>
         </div>
 
@@ -212,8 +157,19 @@ export default function Profile() {
             </div>
         </div>
 
+        {/* --- BAŞLIK VE EKLEME BUTONU --- */}
+        <div className="flex justify-between items-center mb-4">
+            <h2 className="text-2xl font-bold text-gray-900">📂 Anket Yönetimi</h2>
+            {/* YENİ EKLEME BUTONU */}
+            <button 
+                onClick={handleAddSurveyCheck}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-md transition flex items-center gap-2"
+            >
+                <span>➕</span> Yeni Ekle
+            </button>
+        </div>
+        
         {/* ANKET LİSTESİ */}
-        <h2 className="text-2xl font-bold text-gray-900 mb-4">📂 Anket Yönetimi</h2>
         <div className="space-y-4">
             {data.surveys.length === 0 ? (
                  <div className="text-center py-10 text-gray-500 bg-white rounded-xl border border-dashed border-gray-300">Henüz anketin yok.</div>
@@ -226,21 +182,15 @@ export default function Profile() {
                                 <span className="text-xs text-gray-400">Son işlem: {new Date(survey.lastBoostedAt || survey.createdAt).toLocaleTimeString()}</span>
                                 <span className="text-xs text-yellow-600 font-bold flex items-center border border-yellow-200 px-1 rounded">⭐ {survey.rating || 0}</span>
                             </div>
-                            {/* Tıklanabilir Başlık */}
                             <Link href={`/survey/${survey._id}`}>
-                                <h3 className="font-bold text-gray-900 text-lg hover:text-indigo-600 hover:underline cursor-pointer transition inline-block">
-                                    {survey.title} ↗
-                                </h3>
+                                <h3 className="font-bold text-gray-900 text-lg hover:text-indigo-600 hover:underline cursor-pointer transition inline-block">{survey.title} ↗</h3>
                             </Link>
                         </div>
-                        
                         <div className="flex items-center gap-2 w-full lg:w-auto justify-end">
                             <button onClick={() => handleBoost(survey._id)} disabled={loadingId === survey._id || (data.user.boostLimit - data.user.boostsUsedToday) <= 0} className={`px-3 py-2 rounded-lg font-bold text-xs flex items-center gap-1 transition ${loadingId === survey._id ? 'bg-gray-300' : (data.user.boostLimit - data.user.boostsUsedToday) > 0 ? 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-300' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
                                 {loadingId === survey._id ? '...' : '🚀 Üste Çıkar'}
                             </button>
                             <Link href={`/edit-survey/${survey._id}`}><button className="bg-yellow-100 text-yellow-700 border border-yellow-300 px-3 py-2 rounded-lg font-bold text-xs hover:bg-yellow-200 transition">✏️ Düzenle</button></Link>
-                            
-                            {/* SİL BUTONU GERİ GELDİ */}
                             <button onClick={() => handleDeleteSurvey(survey._id)} className="bg-red-100 text-red-700 border border-red-300 px-3 py-2 rounded-lg font-bold text-xs hover:bg-red-200 transition flex items-center gap-1">🗑️ Sil</button>
                         </div>
                     </div>
