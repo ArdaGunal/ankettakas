@@ -1,18 +1,28 @@
 import Link from 'next/link';
 
 export default function SurveyCard({ survey }) {
-  // onFill prop'una artık gerek yok, her şey detay sayfasında.
-  
   return (
     <div className="bg-white rounded-xl shadow-md p-6 hover:shadow-xl transition-all border border-gray-100 flex flex-col h-full group relative">
       
       {/* Kategori ve Puan */}
       <div className="flex items-center justify-between mb-4">
-         <span className="bg-blue-50 text-blue-700 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wide">
-            {survey.category}
-         </span>
-         <div className="flex items-center text-yellow-500 font-bold text-sm bg-yellow-50 px-2 py-1 rounded border border-yellow-100">
-             ⭐ {survey.rating || 0}
+         <div className="flex items-center gap-2">
+             <span className="bg-blue-50 text-blue-700 text-xs px-3 py-1 rounded-full font-bold uppercase tracking-wide">
+                {survey.category}
+             </span>
+             {/* SÜRE BİLGİSİ BURAYA GELDİ */}
+             <span className="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-full font-bold flex items-center gap-1">
+                🕒 {survey.durationValue} {survey.durationUnit === 'min' ? 'dk' : 'saat'}
+             </span>
+         </div>
+
+         {/* PUAN MANTIĞI DÜZELTİLDİ */}
+         <div className={`flex items-center font-bold text-sm px-2 py-1 rounded border ${survey.rating > 0 ? 'text-yellow-500 bg-yellow-50 border-yellow-100' : 'text-gray-400 bg-gray-50 border-gray-200'}`}>
+             {survey.rating > 0 ? (
+                 <>⭐ {survey.rating}</>
+             ) : (
+                 <span className="text-xs font-normal">Puanlanmadı</span>
+             )}
          </div>
       </div>
 
@@ -21,7 +31,6 @@ export default function SurveyCard({ survey }) {
           {survey.title}
       </h3>
       
-      {/* Özet Açıklama */}
       <p className="text-gray-600 text-sm mb-6 line-clamp-3 flex-grow">
           {survey.description}
       </p>

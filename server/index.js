@@ -56,18 +56,17 @@ const auth = (req, res, next) => {
 
 // --- ROTALAR ---
 
+// 1. KAYIT OLMA (TEMİZLENDİ)
 app.post('/api/register', async (req, res) => {
-    const { username, email, password } = req.body;
+    // SADECE gerekli alanlar alınıyor
+    const { username, email, password } = req.body; 
+    
     if (data.users.find(u => u.email === email)) return res.status(400).json({ msg: 'Mail kayıtlı.' });
     const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = { 
         id: Date.now().toString(), username, email, password: hashedPassword, 
         points: 0, lastBoostDate: null, boostsUsedToday: 0,
-        // YENİ GÖREV DEĞİŞKENLERİ
-        bonusBoosts: 0,       // Kazanılan ekstra haklar
-        streakCount: 0,       // Şu anki görev ilerlemesi (0/5)
-        streakSurveyIds: [],  // Hangi anketleri doldurdu (Tekrarı önlemek için)
-        nextStreakAvailableAt: null // Soğuma süresi bitiş zamanı
+        bonusBoosts: 0, streakCount: 0, streakSurveyIds: [], nextStreakAvailableAt: null // Görev bilgileri
     };
     data.users.push(newUser);
     saveData();
@@ -84,7 +83,6 @@ app.post('/api/login', async (req, res) => {
     res.json({ token, user: { username: user.username, points: user.points } });
 });
 
-// PROFİL (Görev Bilgilerini Gönderiyoruz)
 app.get('/api/profile', auth, (req, res) => {
     const user = data.users.find(u => u.id === req.user.id);
     const userSurveys = data.surveys.filter(s => s.username === user.username);
@@ -97,18 +95,8 @@ app.get('/api/profile', auth, (req, res) => {
     });
     const reputation = ratedSurveyCount > 0 ? (totalRating / ratedSurveyCount).toFixed(1) : "Yok";
 
-    // Kullanıcıya özel limitleri hesapla
-    const baseBoostLimit = getDailyBoostLimit(currentLevel);
-    const totalBoostLimit = baseBoostLimit + (user.bonusBoosts || 0); // Normal Hak + Kazanılan Hak
-
     res.json({ 
-        user: { 
-            ...user, 
-            level: currentLevel, 
-            reputation, 
-            boostLimit: totalBoostLimit, // Toplam hakkı gönder
-            surveyLimit: getSurveyLimit(currentLevel) 
-        }, 
+        user: { ...user, level: currentLevel, reputation, boostLimit: getDailyBoostLimit(currentLevel), surveyLimit: getSurveyLimit(currentLevel) }, 
         surveys: userSurveys,
         progress: {
             current: user.points,
@@ -135,7 +123,11 @@ app.get('/api/surveys/:id', (req, res) => {
     if(survey) res.json(survey); else res.status(404).json({ msg: 'Yok' });
 });
 
+// 2. ANKET EKLEME (YENİ SÜRE ALANLARI EKLENDİ)
 app.post('/api/surveys', auth, (req, res) => {
+    // SADECE BU ROTADA ANKET ALANLARI ALINIR
+    const { title, description, category, externalLink, durationValue, durationUnit } = req.body;
+
     const user = data.users.find(u => u.id === req.user.id);
     const level = calculateLevel(user.points);
     const limit = getSurveyLimit(level);
@@ -144,7 +136,11 @@ app.post('/api/surveys', auth, (req, res) => {
     if (userSurveyCount >= limit) return res.status(403).json({ msg: `Limit doldu! Seviye ${level} limiti: ${limit}` });
 
     const newSurvey = {
-        _id: Date.now().toString(), ...req.body, clicks: 0, createdAt: new Date(), lastBoostedAt: new Date(),
+        _id: Date.now().toString(), 
+        title, description, category, externalLink,
+        durationValue: parseInt(durationValue) || 5, // Süre değeri eklendi
+        durationUnit: durationUnit || 'min',        // Süre birimi eklendi
+        clicks: 0, createdAt: new Date(), lastBoostedAt: new Date(),
         username: req.user.username, clickedBy: [], reviews: [], rating: 0
     };
     data.surveys.unshift(newSurvey);
@@ -170,7 +166,6 @@ app.delete('/api/surveys/:id', auth, (req, res) => {
     res.json({ msg: 'Silindi.' });
 });
 
-// BOOST (Öne Çıkarma)
 app.post('/api/boost/:id', auth, (req, res) => {
     const user = data.users.find(u => u.id === req.user.id);
     const survey = data.surveys.find(s => s._id === req.params.id);
@@ -179,17 +174,11 @@ app.post('/api/boost/:id', auth, (req, res) => {
 
     const currentLevel = calculateLevel(user.points);
     const baseLimit = getDailyBoostLimit(currentLevel);
-    // Toplam Hak = Normal Hak + Kazanılan Bonuslar
     const totalLimit = baseLimit + (user.bonusBoosts || 0); 
-
     const today = new Date().toDateString();
-    if (user.lastBoostDate !== today) { 
-        user.boostsUsedToday = 0; 
-        user.lastBoostDate = today; 
-        user.bonusBoosts = 0; // Yeni günde bonuslar sıfırlanır (veya kalsın istersen bunu sil)
-    }
 
-    if (user.boostsUsedToday >= totalLimit) return res.status(400).json({ msg: 'Hakkın bitti! Anket doldurarak kazanabilirsin.' });
+    if (user.lastBoostDate !== today) { user.boostsUsedToday = 0; user.lastBoostDate = today; user.bonusBoosts = 0; }
+    if (user.boostsUsedToday >= totalLimit) return res.status(400).json({ msg: 'Günlük hak bitti!' });
 
     user.boostsUsedToday += 1;
     survey.lastBoostedAt = new Date();
@@ -197,14 +186,13 @@ app.post('/api/boost/:id', auth, (req, res) => {
     res.json({ msg: '🚀 Boostlandı!', remaining: totalLimit - user.boostsUsedToday });
 });
 
-// TIKLAMA, PUAN VE GÖREV SİSTEMİ (BURASI DEĞİŞTİ)
 app.post('/api/click/:id', async (req, res) => {
     const survey = data.surveys.find(s => s._id === req.params.id);
     if(!survey) return res.status(404).json({ msg: 'Yok' });
     
     const token = req.header('x-auth-token');
     let userId = null;
-    let rewardMessage = ''; // Kullanıcıya dönecek özel mesaj
+    let rewardMessage = '';
 
     if(token) { try { userId = jwt.verify(token, 'gizliSifre123').id; } catch(e) {} }
 
@@ -225,30 +213,19 @@ app.post('/api/click/:id', async (req, res) => {
 
         if(user) { 
             user.points += 1; 
-            
-            // --- GÜNLÜK GÖREV MANTIĞI ---
             const NOW = Date.now();
             
-            // 1. Soğuma süresi dolmuş mu?
             if (!user.nextStreakAvailableAt || NOW > user.nextStreakAvailableAt) {
-                
-                // 2. Bu anketi görev için daha önce saymış mıyız?
                 if (!user.streakSurveyIds) user.streakSurveyIds = [];
                 if (!user.streakSurveyIds.includes(survey._id)) {
-                    
-                    // Sayılmamışsa ekle ve sayacı artır
                     user.streakCount = (user.streakCount || 0) + 1;
                     user.streakSurveyIds.push(survey._id);
 
-                    // 3. 5'e ulaştı mı?
                     if (user.streakCount >= 5) {
-                        user.bonusBoosts = (user.bonusBoosts || 0) + 1; // Ödülü ver
-                        user.streakCount = 0; // Sıfırla
-                        user.streakSurveyIds = []; // Listeyi temizle
-                        
-                        // 2 Saat Soğuma Koy
+                        user.bonusBoosts = (user.bonusBoosts || 0) + 1;
+                        user.streakCount = 0;
+                        user.streakSurveyIds = [];
                         user.nextStreakAvailableAt = NOW + (2 * 60 * 60 * 1000);
-                        
                         rewardMessage = '🎁 TEBRİKLER! 5 Anket tamamladın ve +1 Boost Hakkı kazandın!';
                     }
                 }
@@ -258,12 +235,9 @@ app.post('/api/click/:id', async (req, res) => {
 
     survey.clicks += 1;
     saveData();
-    
-    // Frontend'e özel mesajı da yolla
     res.json({ msg: 'OK', clicks: survey.clicks, reward: rewardMessage });
 });
 
-// ... (Yorum ve Yanıt kodları aynı kalıyor, aşağısı aynı)
 app.post('/api/surveys/:id/review', auth, (req, res) => {
     const { text, stars } = req.body;
     const survey = data.surveys.find(s => s._id === req.params.id);
@@ -308,4 +282,4 @@ app.post('/api/surveys/:id/reviews/:index/reply', auth, (req, res) => {
 });
 
 const PORT = 5000;
-app.listen(PORT, () => console.log(`Backend ${PORT} portunda GÖREV SİSTEMİ ile hazır...`));
+app.listen(PORT, () => console.log(`Backend ${PORT} portunda SÜRE ÖZELLİĞİ İLE HAZIR...`));

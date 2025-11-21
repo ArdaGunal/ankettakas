@@ -11,7 +11,6 @@ export default function SurveyDetail() {
   const [status, setStatus] = useState('idle'); 
   const [startTime, setStartTime] = useState(null);
   
-  // Yorum Formları
   const [reviewForm, setReviewForm] = useState({ text: '', stars: 5 });
   const [replyText, setReplyText] = useState('');
   const [replyingToIndex, setReplyingToIndex] = useState(null);
@@ -62,27 +61,11 @@ export default function SurveyDetail() {
   const handleClaimPoint = async () => {
     try {
         if(!token) { setStatus('completed'); return; }
-        
-        // ADRES GÜNCELLENDİ VE RESPONSE ALINDI
         const res = await axios.post(`${API_URL}/click/${survey._id}`, {}, { headers: { 'x-auth-token': token } });
-        
-        // Normal Puan Mesajı
         toast.success('Tebrikler! Puan eklendi. 🎉');
-        
-        // --- EĞER ÖDÜL VARSA ONU DA GÖSTER ---
         if (res.data.reward) {
-            toast(res.data.reward, {
-                duration: 6000,
-                icon: '🎁',
-                style: {
-                    border: '2px solid #10B981',
-                    padding: '16px',
-                    color: '#065F46',
-                    background: '#D1FAE5'
-                },
-            });
+            toast(res.data.reward, { duration: 6000, icon: '🎁', style: { border: '2px solid #10B981', padding: '16px', color: '#065F46', background: '#D1FAE5' } });
         }
-
         setStatus('completed');
     } catch (err) { toast.error(err.response?.data?.msg || 'Hata'); }
   };
@@ -128,32 +111,45 @@ export default function SurveyDetail() {
         {/* ÜST KISIM */}
         <div className="bg-indigo-900 p-8 text-white text-center relative">
             <button onClick={() => router.push('/')} className="absolute top-4 left-4 bg-indigo-800 hover:bg-indigo-700 px-3 py-1 rounded text-sm border border-indigo-600">← Geri Dön</button>
-            <span className="bg-indigo-700 text-xs px-2 py-1 rounded-full uppercase tracking-wide border border-indigo-500">{survey.category}</span>
-            <h1 className="text-3xl font-bold mt-3 mb-2">{survey.title}</h1>
+            
+            {/* KATEGORİ VE SÜRE BİLGİSİ */}
+            <div className="flex justify-center items-center gap-2 mb-3">
+                <span className="bg-indigo-700 text-xs px-2 py-1 rounded-full uppercase tracking-wide border border-indigo-500">{survey.category}</span>
+                {/* SÜRE GÖSTERGESİ EKLENDİ */}
+                <span className="bg-indigo-800 text-indigo-100 text-xs px-2 py-1 rounded-full border border-indigo-600 flex items-center gap-1">
+                    🕒 {survey.durationValue} {survey.durationUnit === 'min' ? 'dk' : 'Saat'}
+                </span>
+            </div>
+
+            <h1 className="text-3xl font-bold mb-2">{survey.title}</h1>
+            
             <div className="flex justify-center items-center gap-4 text-indigo-200 text-sm">
                 <span>Sahibi: <b>{survey.username}</b></span>
                 <span>•</span>
                 <span>{new Date(survey.createdAt).toLocaleDateString()}</span>
             </div>
+
+            {/* PUAN GÖSTERGESİ (DÜZELTİLDİ) */}
             <div className="mt-4 inline-block bg-white text-indigo-900 px-4 py-2 rounded-lg font-bold shadow-lg">
-                ⭐ {survey.rating || 0} / 5 <span className="text-xs font-normal">({survey.reviews?.length} Oy)</span>
+                {survey.rating > 0 ? (
+                    <>⭐ {survey.rating} / 5 <span className="text-xs font-normal">({survey.reviews?.length} Oy)</span></>
+                ) : (
+                    <span className="text-sm text-gray-500 font-normal">Henüz Puanlanmadı</span>
+                )}
             </div>
         </div>
 
-        {/* ORTA KISIM - RENKLER KOYULAŞTIRILDI */}
+        {/* ORTA KISIM */}
         <div className="p-8 text-center border-b border-gray-200">
-            {/* BURASI ÖNEMLİ: text-gray-900 (Koyu Siyah) yapıldı */}
             <p className="text-gray-900 text-lg mb-8 leading-relaxed font-medium">
                 {survey.description}
             </p>
-            
             <div className="max-w-md mx-auto">
                 {status === 'idle' && <button onClick={handleStart} className="w-full py-4 rounded-xl font-bold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-lg text-lg transform hover:scale-105">🚀 Ankete Git ve Başla</button>}
                 {status === 'waiting' && <button disabled className="w-full py-4 rounded-xl font-bold text-gray-600 bg-gray-200 border border-gray-300 cursor-wait text-lg">⏳ Sekme Açık, Dönüş Bekleniyor...</button>}
                 {status === 'ready' && <button onClick={handleClaimPoint} className="w-full py-4 rounded-xl font-bold text-white bg-green-600 hover:bg-green-700 animate-bounce shadow-lg text-lg">✅ Doldurdum, Puanı Ver!</button>}
                 {status === 'completed' && <button disabled className="w-full py-4 rounded-xl font-bold text-green-800 bg-green-100 border border-green-300 text-lg">✓ İşlem Tamamlandı</button>}
             </div>
-            
             {!token && <p className="text-xs text-red-500 font-bold mt-3">Puan kazanmak ve yorum yapmak için giriş yapmalısın.</p>}
         </div>
 
@@ -181,7 +177,6 @@ export default function SurveyDetail() {
                                 <div>
                                     <span className="font-bold text-gray-900 text-md">{rev.username}</span>
                                     <span className="text-yellow-600 text-sm ml-2 font-bold">{'⭐'.repeat(rev.stars)}</span>
-                                    {/* YORUM METNİ RENGİ */}
                                     <p className="text-gray-800 mt-1 font-medium">{rev.text}</p>
                                 </div>
                                 <div className="flex gap-2 text-xs font-bold">
@@ -189,14 +184,12 @@ export default function SurveyDetail() {
                                     {isOwner && <button onClick={() => handleDeleteReview(i)} className="text-red-600 hover:underline">Sil</button>}
                                 </div>
                             </div>
-
                             {replyingToIndex === i && (
                                 <form onSubmit={(e) => handleSendReply(e, i)} className="mt-3 flex gap-2 pl-4 border-l-4 border-indigo-200">
                                     <input autoFocus type="text" placeholder="Yanıtın..." className="flex-1 border border-gray-400 rounded p-2 text-sm text-black bg-white" value={replyText} onChange={e => setReplyText(e.target.value)} />
                                     <button className="bg-indigo-600 text-white px-3 py-1 rounded text-sm font-bold">Yolla</button>
                                 </form>
                             )}
-
                             {rev.replies && rev.replies.length > 0 && (
                                 <div className="mt-3 space-y-2 pl-4 border-l-4 border-gray-200">
                                     {rev.replies.map((reply, rIndex) => (
@@ -214,7 +207,6 @@ export default function SurveyDetail() {
                 )}
             </div>
         </div>
-
       </div>
     </div>
   );
