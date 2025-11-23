@@ -1,21 +1,19 @@
 version: '3.8'
 
 services:
-  # 1. NODE.JS BACKEND (API) SERVİSİ
   backend:
     build:
-      context: ./server  # Nereden build edilecek
+      context: ./server
       dockerfile: Dockerfile
     container_name: survey-backend
-    restart: always 
+    restart: always
     ports:
-      - "5000:5000" 
+      - "5000:5000"
     volumes:
-      - ./server/database.json:/app/database.json # Veritabanı dosyasını kalıcı yap
+      - ./server/database.json:/app/database.json
     networks:
-      - survey-network 
+      - survey-network
 
-  # 2. NEXT.JS FRONTEND SERVİSİ
   frontend:
     build:
       context: ./client
@@ -23,17 +21,14 @@ services:
     container_name: survey-frontend
     restart: always
     ports:
-      - "3000:3000" 
+      - "3000:3000"
     depends_on:
-      - backend 
+      - backend
     networks:
-      - survey-network 
+      - survey-network
     environment:
-      # Frontendi, backend'in iç ağdaki ismine yönlendiriyoruz
-      - NEXT_PUBLIC_API_URL=http://backend:5000/api 
+      - NEXT_PUBLIC_API_URL=http://backend:5000/api
 
-
-# Docker'ın kendi iç ağı
 networks:
   survey-network:
     driver: bridge
