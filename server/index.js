@@ -20,7 +20,7 @@ const limiter = rateLimit({
 });
 app.use(limiter);
 
-const DB_FILE = path.join(__dirname, 'database.json');
+const DB_FILE = path.join(process.cwd(), 'server', 'database.json');
 let data = { users: [], surveys: [] };
 
 // --- YARDIMCI FONKSİYONLAR ---

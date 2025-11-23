@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -10,7 +8,9 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      - ./server/database.json:/app/database.json
+      # DİKKAT: Burası kodunuzdaki yolla birebir eşleşmeli
+      # Host'taki (Pi) dosyayı -> Konteynerdeki /app/server/ klasörüne bağlıyoruz
+      - ./server/database.json:/app/server/database.json
     networks:
       - survey-network
 
