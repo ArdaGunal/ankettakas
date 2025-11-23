@@ -24,6 +24,7 @@ export default function Home() {
     } catch(e) { console.log(e) }
   };
 
+  // --- KRİTİK: LİMİT KONTROLÜ VE YÖNLENDİRME ---
   const handleAddSurveyClick = async () => {
     const token = localStorage.getItem('token');
     if (!token) {
@@ -31,15 +32,41 @@ export default function Home() {
         router.push('/login');
         return;
     }
-    // ... (Limit kontrol kodları burada çalışır, backendden)
-    router.push('/add-survey'); 
-  };
+    
+    // 1. Profil bilgisini çekerek limitleri kontrol et
+    const loadingToast = toast.loading('Haklarınız kontrol ediliyor...');
 
-  // Ana sayfada puan kazanma fonksiyonu (SurveyCard bunu tetikler)
+    try {
+        const res = await axios.get(`${API_URL}/profile`, {
+            headers: { 'x-auth-token': token }
+        });
+        
+        const { surveys: userSurveys, user } = res.data;
+        const currentCount = userSurveys.length;
+        const limit = user.surveyLimit;
+
+        toast.dismiss(loadingToast);
+
+        // 2. Limit Kontrolü
+        if (currentCount >= limit) {
+            toast.error(`Anket hakkınız dolmuş! (${currentCount}/${limit})\nSeviye atlayın veya eski bir anketi silin.`, {
+                duration: 5000, icon: '🚫', style: { border: '1px solid #ef4444', padding: '16px', color: '#713200' },
+            });
+        } else {
+            // 3. Limit uygunsa sayfaya gönder
+            router.push('/add-survey');
+        }
+
+    } catch (err) {
+        toast.dismiss(loadingToast);
+        toast.error('Giriş/Bağlantı hatası. Lütfen tekrar giriş yapın.');
+        localStorage.removeItem('token');
+    }
+  };
+  // ----------------------------------------------------
+
   const handlePointEarn = async (surveyId) => {
     const token = localStorage.getItem('token');
-    
-    // --- MİSAFİR KONTROLÜ (BURADA PUAN VERMİYORUZ) ---
     if(!token) {
         toast('Misafir modundasın. Puan kazanmak için giriş yapmalısın.', {
             icon: '👻',
@@ -49,10 +76,17 @@ export default function Home() {
     }
 
     try {
-        await axios.post(`${API_URL}/click/${surveyId}`, {}, {
+        const res = await axios.post(`${API_URL}/click/${surveyId}`, {}, {
             headers: { 'x-auth-token': token }
         });
-        toast.success('Tebrikler! +1 Puan eklendi. 🌟');
+        toast.success('Tebrikler! Puan eklendi. 🌟');
+        
+        fetchSurveys(); // Listeyi güncelle
+        
+        if (res.data.reward) {
+             toast(res.data.reward, { duration: 6000, icon: '🎁', style: { border: '2px solid #10B981', padding: '16px', color: '#065F46', background: '#D1FAE5' } });
+        }
+
     } catch (err) { toast.error(err.response?.data?.msg || 'Hata'); }
   };
 
@@ -68,20 +102,27 @@ export default function Home() {
              </div>
              
              <div className="flex gap-3 mt-4 md:mt-0">
+                
+                {/* SIRALAMA BUTONU */}
+                <Link href="/leaderboard">
+                    <button className="bg-purple-100 text-purple-700 border border-purple-300 px-4 py-3 rounded-lg font-bold hover:bg-purple-200 transition flex items-center gap-2">
+                        🏆 Sıralama
+                    </button>
+                </Link>
+
                 {isLoggedIn ? (
-                    // GİRİŞ YAPMIŞSA BU BUTONLAR
                     <>
                         <Link href="/profile">
                             <button className="bg-white text-indigo-600 border border-indigo-200 px-6 py-3 rounded-lg font-bold hover:bg-indigo-50 transition">
                                 👤 Profilim
                             </button>
                         </Link>
+                        {/* KONTROLLÜ BUTON */}
                         <button onClick={handleAddSurveyClick} className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-indigo-700 shadow-lg transition">
                             ➕ Anket Ekle
                         </button>
                     </>
                 ) : (
-                    // MİSAFİR İSE BU BUTONLAR
                     <>
                         <Link href="/login">
                             <button className="text-indigo-600 font-bold px-4 py-2 hover:bg-indigo-50 rounded-lg transition">

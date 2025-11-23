@@ -14,16 +14,24 @@ export default function Login() {
     const loadingToast = toast.loading('Giriş yapılıyor...');
 
     try {
-      const res = await axios.post(`${API_URL}/login`, form);
+      // 5 saniye zaman aşımı (timeout) ile istek atıyoru
+      const res = await axios.post(`${API_URL}/login`, form, { timeout: 5000 }); 
+      
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('username', res.data.user.username);
       
       toast.dismiss(loadingToast);
       toast.success('Hoş geldin! 🎉');
       router.push('/'); 
-    } catch (err) {
+    } catch (err) { 
       toast.dismiss(loadingToast);
-      toast.error(err.response?.data?.msg || 'Giriş başarısız.');
+      
+      // Sunucu kapalıysa veya IP yanlışsa bu hata döner
+      if (err.code === 'ERR_NETWORK') {
+          toast.error("Sunucuya ulaşılamıyor! IP adresini kontrol et.");
+      } else {
+          toast.error(err.response?.data?.msg || 'Giriş başarısız.');
+      }
     }
   };
 

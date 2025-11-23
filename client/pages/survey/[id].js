@@ -40,7 +40,7 @@ export default function SurveyDetail() {
   const checkTime = () => {
     if (!startTime) return;
     const timeSpent = Date.now() - startTime;
-    if (timeSpent < 5000) { toast.error('🛑 Çok hızlı döndün! Sayılmadı.'); setStatus('idle'); setStartTime(null); } 
+    if (timeSpent < 5000) { toast.error('🛑 Lütfen anketi yaptığınızdan emin olunuz.'); setStatus('idle'); setStartTime(null); } 
     else { toast.success('Süre tamam. Puanını alabilirsin. 👍'); setStatus('ready'); }
   };
 

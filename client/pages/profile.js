@@ -18,35 +18,28 @@ export default function Profile() {
       const res = await axios.get(`${API_URL}/profile`, {
           headers: { 'x-auth-token': token }
       });
+      console.log("Gelen Veri:", res.data); // Konsola veriyi yazdıralım (Hata ayıklamak için)
       setData(res.data);
     } catch (err) {
-      localStorage.removeItem('token');
-      router.push('/login');
+      // Hata olsa bile sayfayı hemen kapatma, belki geçici bir sorundur
+      console.error(err);
+      if(err.response && err.response.status === 401) {
+          localStorage.removeItem('token');
+          router.push('/login');
+      }
     }
   };
 
   useEffect(() => { fetchProfile(); }, []);
 
   const handleLogout = () => {
-      localStorage.removeItem('token'); localStorage.removeItem('username');
+      localStorage.removeItem('token'); 
+      localStorage.removeItem('username');
       toast.success('Başarıyla çıkış yapıldı. 👋');
       router.push('/login'); 
   };
 
-  // --- ANKET EKLEME KONTROLÜ (PROFİL İÇİN) ---
-  const handleAddSurveyCheck = () => {
-      // Zaten elimizde kullanıcının verileri (data) var, tekrar sormaya gerek yok
-      if (data.surveys.length >= data.user.surveyLimit) {
-          toast.error(`Anket hakkınız dolmuş! (${data.surveys.length}/${data.user.surveyLimit})`, {
-              icon: '🚫',
-              style: { border: '1px solid #ef4444', color: '#713200' }
-          });
-      } else {
-          router.push('/add-survey');
-      }
-  };
-
-  const handleDeleteSurvey = async (surveyId) => {
+  const handleDeleteSurvey = (surveyId) => {
       toast((t) => (
         <div className="flex flex-col items-center text-center gap-3 w-full">
           <div className="bg-red-100 p-3 rounded-full"><span className="text-3xl">🗑️</span></div>
@@ -73,28 +66,55 @@ export default function Profile() {
       const token = localStorage.getItem('token');
       setLoadingId(surveyId);
       try {
-          const res = await axios.post(`${API_URL}/boost/${surveyId}`, {}, { headers: { 'x-auth-token': token } });
+          const res = await axios.post(`${API_URL}/boost/${surveyId}`, {}, {
+            headers: { 'x-auth-token': token }
+          });
           toast.success("Anket üste taşındı! 🔥"); fetchProfile();
       } catch (err) { toast.error(err.response?.data?.msg || 'Hata'); } finally { setLoadingId(null); }
   };
 
-  if (!data) return <div className="min-h-screen flex items-center justify-center">Yükleniyor...</div>;
+  if (!data) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 text-gray-600">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+        <p>Profil Yükleniyor...</p>
+    </div>
+  );
 
-  const { current, next, floor } = data.progress;
+  // --- VERİ GÜVENLİĞİ (BOŞSA VARSAYILAN DEĞER KULLAN) ---
+  const user = data.user || {};
+  const surveys = data.surveys || [];
+  const progress = data.progress || { current: 0, next: 100, floor: 0 };
+
+  const { current, next, floor } = progress;
   const totalNeeded = next - floor;
   const currentProgress = current - floor;
-  const percent = Math.min(100, Math.max(0, (currentProgress / totalNeeded) * 100));
+  // Matematik hatasını önlemek için (0'a bölünme kontrolü)
+  const percent = totalNeeded > 0 ? Math.min(100, Math.max(0, (currentProgress / totalNeeded) * 100)) : 0;
 
-  const streak = data.user.streakCount || 0;
+  const streak = user.streakCount || 0;
   const streakPercent = (streak / 5) * 100;
-  const isCooldown = data.user.nextStreakAvailableAt && new Date(data.user.nextStreakAvailableAt) > new Date();
+  const isCooldown = user.nextStreakAvailableAt && new Date(user.nextStreakAvailableAt) > new Date();
   
   let cooldownText = "";
   if (isCooldown) {
-      const diff = new Date(data.user.nextStreakAvailableAt) - new Date();
+      const diff = new Date(user.nextStreakAvailableAt) - new Date();
       const minutes = Math.ceil(diff / 60000);
       cooldownText = `${minutes} dk`;
   }
+
+  // Limit verilerini güvenli al
+  const surveyLimit = user.surveyLimit || 5;
+  const boostLimit = user.boostLimit || 0;
+  const boostsUsed = user.boostsUsedToday || 0;
+
+  // --- ANKET EKLEME KONTROLÜ ---
+  const handleAddSurveyCheck = () => {
+      if (surveys.length >= surveyLimit) {
+          toast.error(`Limit doldu! (${surveys.length}/${surveyLimit})`, { icon: '🚫' });
+      } else {
+          router.push('/add-survey');
+      }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 md:p-8">
@@ -105,19 +125,21 @@ export default function Profile() {
             <button onClick={handleLogout} className="absolute top-6 right-6 text-sm font-bold text-red-500 bg-red-50 px-3 py-1 rounded-lg border border-red-100 hover:bg-red-100 transition flex items-center gap-1">🚪 Çıkış Yap</button>
             <div className="flex flex-col md:flex-row items-center justify-between mb-6 mt-2">
                 <div className="flex items-center gap-4">
-                    <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-2xl text-white font-bold shadow-md">{data.user.username[0].toUpperCase()}</div>
+                    <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-2xl text-white font-bold shadow-md">
+                        {user.username ? user.username[0].toUpperCase() : '?'}
+                    </div>
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-900">{data.user.username}</h1>
-                        <p className="text-sm text-gray-500">Toplam Puan: <b>{data.user.points}</b></p>
+                        <h1 className="text-2xl font-bold text-gray-900">{user.username || 'Kullanıcı'}</h1>
+                        <p className="text-sm text-gray-500">Toplam Puan: <b>{user.points || 0}</b></p>
                     </div>
                     <div className="text-center bg-yellow-50 px-4 py-2 rounded-xl border border-yellow-200 ml-4 hidden md:block">
                         <p className="text-[10px] uppercase text-yellow-800 font-bold tracking-wider">Kalite Puanı</p>
-                        <p className="text-2xl font-black text-yellow-600 mt-1">⭐ {data.user.reputation || '-'}</p>
+                        <p className="text-2xl font-black text-yellow-600 mt-1">⭐ {user.reputation || '-'}</p>
                     </div>
                 </div>
                 <div className="text-right mt-4 md:mt-0 mr-0 md:mr-32"> 
                     <span className="block text-xs text-gray-500 uppercase font-bold">Seviye</span>
-                    <span className="text-4xl font-black text-indigo-600">{data.user.level}</span>
+                    <span className="text-4xl font-black text-indigo-600">{user.level || 1}</span>
                 </div>
             </div>
             <div className="relative pt-1">
@@ -149,32 +171,26 @@ export default function Profile() {
         <div className="grid grid-cols-2 gap-4 mb-8">
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
                 <h3 className="text-gray-500 text-xs font-bold uppercase">Anket Hakkı</h3>
-                <p className="text-2xl font-bold text-gray-800 mt-1">{data.surveys.length} / <span className="text-indigo-600">{data.user.surveyLimit}</span></p>
+                <p className="text-2xl font-bold text-gray-800 mt-1">{surveys.length} / <span className="text-indigo-600">{surveyLimit}</span></p>
             </div>
             <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-200 text-center">
                 <h3 className="text-gray-500 text-xs font-bold uppercase">Günlük Üste Çıkarma</h3>
-                <p className="text-2xl font-bold text-gray-800 mt-1">{data.user.boostLimit - data.user.boostsUsedToday} / <span className="text-green-600">{data.user.boostLimit}</span></p>
+                <p className="text-2xl font-bold text-gray-800 mt-1">{boostLimit - boostsUsed} / <span className="text-green-600">{boostLimit}</span></p>
             </div>
         </div>
 
         {/* --- BAŞLIK VE EKLEME BUTONU --- */}
         <div className="flex justify-between items-center mb-4">
             <h2 className="text-2xl font-bold text-gray-900">📂 Anket Yönetimi</h2>
-            {/* YENİ EKLEME BUTONU */}
-            <button 
-                onClick={handleAddSurveyCheck}
-                className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-md transition flex items-center gap-2"
-            >
-                <span>➕</span> Yeni Ekle
-            </button>
+            <button onClick={handleAddSurveyCheck} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 shadow-md transition flex items-center gap-2"><span>➕</span> Yeni Ekle</button>
         </div>
         
         {/* ANKET LİSTESİ */}
         <div className="space-y-4">
-            {data.surveys.length === 0 ? (
+            {surveys.length === 0 ? (
                  <div className="text-center py-10 text-gray-500 bg-white rounded-xl border border-dashed border-gray-300">Henüz anketin yok.</div>
             ) : (
-                data.surveys.map(survey => (
+                surveys.map(survey => (
                     <div key={survey._id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col lg:flex-row justify-between items-center gap-4">
                         <div className="flex-1 w-full">
                             <div className="flex items-center gap-2 mb-1">
@@ -187,7 +203,7 @@ export default function Profile() {
                             </Link>
                         </div>
                         <div className="flex items-center gap-2 w-full lg:w-auto justify-end">
-                            <button onClick={() => handleBoost(survey._id)} disabled={loadingId === survey._id || (data.user.boostLimit - data.user.boostsUsedToday) <= 0} className={`px-3 py-2 rounded-lg font-bold text-xs flex items-center gap-1 transition ${loadingId === survey._id ? 'bg-gray-300' : (data.user.boostLimit - data.user.boostsUsedToday) > 0 ? 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-300' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
+                            <button onClick={() => handleBoost(survey._id)} disabled={loadingId === survey._id || ((boostLimit - boostsUsed) <= 0)} className={`px-3 py-2 rounded-lg font-bold text-xs flex items-center gap-1 transition ${loadingId === survey._id ? 'bg-gray-300' : (boostLimit - boostsUsed) > 0 ? 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-300' : 'bg-gray-100 text-gray-400 cursor-not-allowed'}`}>
                                 {loadingId === survey._id ? '...' : '🚀 Üste Çıkar'}
                             </button>
                             <Link href={`/edit-survey/${survey._id}`}><button className="bg-yellow-100 text-yellow-700 border border-yellow-300 px-3 py-2 rounded-lg font-bold text-xs hover:bg-yellow-200 transition">✏️ Düzenle</button></Link>
