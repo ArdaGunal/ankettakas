@@ -23,29 +23,20 @@ app.use(limiter);
 const DB_FILE = path.join(__dirname, 'database.json');
 let data = { users: [], surveys: [] };
 
-// --- YARDIMCI FONKSİYONLAR (SENİN İSTEDİĞİN YENİ SİSTEM) ---
+// --- YARDIMCI FONKSİYONLAR ---
 
 const getPointsForLevel = (level) => {
     if (level <= 1) return 0;
-
-    // İlk 5 seviye: çok kolay geçiş (Senin Tablon)
-    // Lvl 2: 1 puan
-    // Lvl 3: 3 puan
-    // Lvl 4: 5 puan
-    // Lvl 5: 7 puan
     const easyLevels = [0, 1, 3, 5, 7]; 
     if (level <= 5) return easyLevels[level - 1];
-
-    // Level 5 sonrası: yumuşak artış formülü
     return 7 + (level - 5) * 8 + ((level - 5) * (level - 6) * 3) / 2;
 };
 
 const calculateLevel = (points) => {
     let level = 1;
-    // Bir sonraki seviyenin puanına yetiyor mu diye kontrol et
     while (points >= getPointsForLevel(level + 1)) {
         level++;
-        if (level >= 50) return 50; // Max Level 50
+        if (level >= 50) return 50;
     }
     return level;
 };
@@ -88,7 +79,8 @@ app.post('/api/register', async (req, res) => {
     const newUser = { 
         id: Date.now().toString(), username, email, password: hashedPassword, 
         points: 0, lastBoostDate: null, boostsUsedToday: 0,
-        bonusBoosts: 0, streakCount: 0, streakSurveyIds: [], nextStreakAvailableAt: null
+        bonusBoosts: 0, // ← BİRİKİMLİ BOOST HAKKI (MAX 5)
+        streakCount: 0, streakSurveyIds: [], nextStreakAvailableAt: null
     };
     data.users.push(newUser);
     saveData();
@@ -117,9 +109,17 @@ app.get('/api/profile', auth, (req, res) => {
     userSurveys.forEach(s => { if (s.rating) { totalRating += s.rating; ratedSurveyCount++; } });
     const reputation = ratedSurveyCount > 0 ? (totalRating / ratedSurveyCount).toFixed(1) : "Yok";
 
-    // Boost ve Anket Hakları (Seviye ile artan)
+    // Boost ve Anket Hakları
     const getDailyBoostLimit = (lvl) => (lvl < 2 ? 0 : lvl < 3 ? 1 : lvl < 5 ? 3 : lvl < 7 ? 5 : lvl < 10 ? 8 : 15);
     const getSurveyLimit = (lvl) => (lvl < 5 ? 2 : lvl < 10 ? 5 : lvl < 20 ? 10 : lvl < 30 ? 15 : 20);
+
+    // GÜNLÜK LİMİT SIFIRLAMA (SADECE GÜNLÜK BOOST İÇİN)
+    const today = new Date().toDateString();
+    if (user.lastBoostDate !== today) { 
+        user.boostsUsedToday = 0; 
+        user.lastBoostDate = today; 
+        // ← bonusBoosts ARTIK SIFIRLANMIYOR!
+    }
 
     res.json({ 
         user: { 
@@ -167,7 +167,6 @@ app.get('/api/surveys/:id', (req, res) => {
 app.post('/api/surveys', auth, (req, res) => {
     const { title, description, category, externalLink, durationValue, durationUnit } = req.body;
     
-    // Tekrar limit hesapla (Güvenlik için)
     const user = data.users.find(u => u.id === req.user.id);
     const level = calculateLevel(user.points);
     const getSurveyLimit = (lvl) => (lvl < 5 ? 2 : lvl < 10 ? 5 : lvl < 20 ? 10 : lvl < 30 ? 15 : 20);
@@ -214,16 +213,36 @@ app.post('/api/boost/:id', auth, (req, res) => {
     const currentLevel = calculateLevel(user.points);
     const getDailyBoostLimit = (lvl) => (lvl < 2 ? 0 : lvl < 3 ? 1 : lvl < 5 ? 3 : lvl < 7 ? 5 : lvl < 10 ? 8 : 15);
     const baseLimit = getDailyBoostLimit(currentLevel);
-    const totalLimit = baseLimit + (user.bonusBoosts || 0); 
+    
+    // ⭐ GÜNLÜK LİMİT SIFIRLAMA (BONUS BOOST ARTIK SIFIRLANMIYOR)
     const today = new Date().toDateString();
+    if (user.lastBoostDate !== today) { 
+        user.boostsUsedToday = 0; 
+        user.lastBoostDate = today; 
+        // ← bonusBoosts artık SIFIRLANMIYOR!
+    }
 
-    if (user.lastBoostDate !== today) { user.boostsUsedToday = 0; user.lastBoostDate = today; user.bonusBoosts = 0; }
-    if (user.boostsUsedToday >= totalLimit) return res.status(400).json({ msg: 'Günlük hak bitti!' });
+    // ⭐ TOPLAM LİMİT = GÜNLÜK + BİRİKMİŞ BONUS
+    const totalLimit = baseLimit + (user.bonusBoosts || 0); 
+
+    if (user.boostsUsedToday >= totalLimit) {
+        return res.status(400).json({ msg: 'Günlük hak bitti!' });
+    }
+
+    // ⭐ BOOST KULLANILDIĞINDA: ÖNCE BONUS BOOST HARCANIR
+    if (user.bonusBoosts > 0) {
+        user.bonusBoosts -= 1; // Biriktirilen boost azalır
+    }
 
     user.boostsUsedToday += 1;
     survey.lastBoostedAt = new Date();
     saveData();
-    res.json({ msg: '🚀 Boostlandı!', remaining: totalLimit - user.boostsUsedToday });
+    
+    res.json({ 
+        msg: '🚀 Boostlandı!', 
+        remaining: totalLimit - user.boostsUsedToday,
+        bonusBoosts: user.bonusBoosts // Frontend'e kalan bonus sayısını gönder
+    });
 });
 
 app.post('/api/click/:id', async (req, res) => {
@@ -254,10 +273,9 @@ app.post('/api/click/:id', async (req, res) => {
                 survey.clickedBy.push({ userId, timestamp: Date.now() }); 
             }
 
-            // PUAN GÜNCELLEMESİ
             data.users[userIndex].points += 1; 
             
-            // GÖREV MANTIĞI
+            // ⭐ GÖREV MANTIĞI (MAX 5 BİRİKTİRİLEBİLİR)
             const NOW = Date.now();
             if (!user.nextStreakAvailableAt || NOW > user.nextStreakAvailableAt) {
                 if (!user.streakSurveyIds) user.streakSurveyIds = [];
@@ -266,11 +284,17 @@ app.post('/api/click/:id', async (req, res) => {
                     user.streakSurveyIds.push(survey._id);
 
                     if (user.streakCount >= 5) {
-                        user.bonusBoosts = (user.bonusBoosts || 0) + 1;
+                        // ⭐ MAKSIMUM 5 ADET BİRİKTİRİLEBİLİR
+                        if (user.bonusBoosts < 5) {
+                            user.bonusBoosts = (user.bonusBoosts || 0) + 1;
+                            rewardMessage = `🎁 TEBRİKLER! +1 Boost Hakkı kazandın! (Toplam: ${user.bonusBoosts}/5)`;
+                        } else {
+                            rewardMessage = '⚠️ Görev tamamlandı ama maksimum 5 boost hakkına ulaştın. Önce mevcut haklarını kullan!';
+                        }
+                        
                         user.streakCount = 0;
                         user.streakSurveyIds = [];
                         user.nextStreakAvailableAt = NOW + (2 * 60 * 60 * 1000);
-                        rewardMessage = '🎁 TEBRİKLER! +1 Boost Hakkı kazandın!';
                     }
                 }
             }
@@ -283,7 +307,7 @@ app.post('/api/click/:id', async (req, res) => {
 });
 
 // OYLAMA (TEK HAK)
-app.post('/api/surveys/:id/review', auth, (req, res) => {
+app.post('/api/surveys/:id/rate', auth, (req, res) => {
     const { stars } = req.body;
     const survey = data.surveys.find(s => s._id === req.params.id);
     if (!survey) return res.status(404).json({ msg: 'Yok' });
@@ -291,7 +315,6 @@ app.post('/api/surveys/:id/review', auth, (req, res) => {
     if (!survey.ratings) survey.ratings = [];
     const existingRate = survey.ratings.find(r => r.username === req.user.username);
     if (existingRate) {
-        // 15 DK KONTROLÜ
         const COOLDOWN_MS = 15 * 60 * 1000;
         const lastUpdate = new Date(existingRate.date).getTime();
         if (Date.now() - lastUpdate < COOLDOWN_MS) {
@@ -351,4 +374,4 @@ app.post('/api/surveys/:id/reviews/:index/reply', auth, (req, res) => {
 });
 
 const PORT = 5000;
-app.listen(PORT, () => console.log(`Backend ${PORT} portunda SEVİYE GÜNCELLEMESİ HAZIR...`));
+app.listen(PORT, () => console.log(`Backend ${PORT} portunda BİRİKİMLİ BOOST SİSTEMİ HAZIR!`));
